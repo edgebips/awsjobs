@@ -17,7 +17,9 @@ from botocore.client import BaseClient
 import docker
 
 
-def create_dockerfile(command: list[str], direct: bool, region: str) -> tuple[str, list[str]]:
+def create_dockerfile(
+    command: list[str], direct: bool, region: str
+) -> tuple[str, list[str]]:
     """Create a dockerfile contents for the given command."""
     buf = io.StringIO()
     pr = partial(print, file=buf)
@@ -34,7 +36,10 @@ def create_dockerfile(command: list[str], direct: bool, region: str) -> tuple[st
         textwrap.dedent("""\
         FROM python:3.13-slim
 
-        RUN pip install boto3
+        RUN pip install -U pip
+        RUN pip install --root-user-action=ignore boto3
+        RUN pip install --root-user-action=ignore duckdb
+        RUN pip install --root-user-action=ignore polars
 
         RUN adduser --disabled-password --quiet --gecos "" mapuser
         USER mapuser
@@ -43,24 +48,24 @@ def create_dockerfile(command: list[str], direct: bool, region: str) -> tuple[st
     )
 
     # Add AWS credentials to the Dockerfile.
+    # Note: This doesn't appear necessary: ENV AWS_SESSION_TOKEN {aws_session_token}
     pr(
         textwrap.dedent(f"""\
         ENV AWS_ACCESS_KEY_ID		{aws_access_key_id}
         ENV AWS_SECRET_ACCESS_KEY	{aws_secret_access_key}
-        # ENV AWS_SESSION_TOKEN		{aws_session_token}
         ENV AWS_REGION                  {aws_region}
     """)
     )
     pr()
-    filenames = ["aws_dispatcher.py"]
-    pr("COPY aws_dispatcher.py aws_dispatcher.py")
+    filenames = [path.join(path.dirname(__file__), "aws_dispatcher.py")]
+    pr(f"COPY aws_dispatcher.py aws_dispatcher.py")
     for arg in command:
         if path.exists(arg):
             filenames.append(arg)
             pr(f"COPY {arg} {arg}")
     pr()
 
-    command_str = ' '.join(command)
+    command_str = " ".join(command)
     if direct:
         pr(f"CMD {command_str}")
     else:
@@ -69,7 +74,9 @@ def create_dockerfile(command: list[str], direct: bool, region: str) -> tuple[st
     return buf.getvalue(), filenames
 
 
-def build_docker_container(image_tag: str, command: list[str], direct: bool, region: str):
+def build_docker_container(
+    image_tag: str, command: list[str], direct: bool, region: str
+):
     # Create Dockerfile to build.
     dockerfile_content, filenames = create_dockerfile(command, direct, region)
 
@@ -80,7 +87,7 @@ def build_docker_container(image_tag: str, command: list[str], direct: bool, reg
             f.write(textwrap.dedent(dockerfile_content))
 
         for filename in filenames:
-            shutil.copy(filename, path.join(tmpdir, filename))
+            shutil.copy(filename, path.join(tmpdir, path.basename(filename)))
 
         client = docker.from_env()
         print(f"Building Docker image: {image_tag} from path: {tmpdir}")
@@ -90,7 +97,7 @@ def build_docker_container(image_tag: str, command: list[str], direct: bool, reg
                 tag=image_tag,
                 rm=True,  # Remove intermediate containers
                 forcerm=True,  # Always remove intermediate containers
-                quiet=True,
+                quiet=logging.getLogger().getEffectiveLevel() < logging.INFO,
             )
             print(f"Image {image.id} built successfully!")
             print("Build log:")
@@ -192,6 +199,12 @@ def main():
         ),
     )
     parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Verbose output.",
+    )
+    parser.add_argument(
         "--region",
         default="us-east-1",
         help="The region.",
@@ -215,7 +228,9 @@ def main():
     # Build the container if a script is provided.
     if args.build:
         command = args.build.split() if isinstance(args.build, str) else args.build
-        image = build_docker_container(args.docker_image, command, args.direct, args.region)
+        image = build_docker_container(
+            args.docker_image, command, args.direct, args.region
+        )
     else:
         image = args.docker_image
     logging.info(f"Image {image} built successfully!")
