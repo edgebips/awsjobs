@@ -1,0 +1,44 @@
+// JSON Configuration.
+{
+    // Prefix for all resource names.
+    "ResourcePrefix": "mapper",
+
+    // Acccount ID.
+    "AccountId": "1234567890123",
+
+    // Region.
+    "Region": "us-east-1",
+
+    // VPC: You still need a VPC with appropriate subnets. For Fargate, tasks running
+    // in private subnets will need a way to access other AWS services (like ECR to
+    // pull images) and potentially the internet. This usually involves setting up a
+    // NAT Gateway in a public subnet or using VPC Endpoints (e.g., ECR Interface
+    // Endpoint, CloudWatch Logs Interface Endpoint, S3 Gateway Endpoint).
+    "Vpc": "vpc-12345678901234567",
+    "Subnets": [
+        "subnet-12345678901234567",
+        "subnet-12345678901234568",
+    ],
+
+    // Security Groups: Define security groups for your Fargate tasks. These control
+    // inbound and outbound network traffic for the tasks themselves. Often, allowing
+    // necessary outbound traffic (e.g., to ECR, CloudWatch, S3) is the primary
+    // requirement.
+    "SecurityGroup": "sg-12345678901234567",
+
+    // Roles. These get created automatically the first time you create a batch
+    // job by hand.
+    "RoleBatch": "arn:aws:iam::123456789012:role/aws-service-role/batch.amazonaws.com/AWSServiceRoleForBatch",
+    "RoleExec": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole",
+
+    // Container repository.
+    "EcrRepository": "123456789012.dkr.ecr.us-east-1.amazonaws.com",
+
+    // Compute environment settings.
+    "JobVcpu": 1,
+    "JobMemoryMiB": 4096,
+
+    // Bucket and key prefix to store the array job input files.
+    "RunBucket": "my-bucket",
+    "RunPrefix": "run/array-job-inputs"
+}
