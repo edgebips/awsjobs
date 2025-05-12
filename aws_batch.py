@@ -773,7 +773,7 @@ def main():
         "-c",
         "--config",
         action="store",
-        required=True,
+        default=os.environ.get("AWS_BATCH_CONFIG"),
         help="Configuration JSON file (see example JSON for schema).",
     )
 
@@ -808,6 +808,8 @@ def main():
     args = parser.parse_args()
 
     # Read the JSON configuration.
+    if not args.config:
+        parser.error("Missing --config; argument is required, or set AWS_BATCH_CONFIG.")
     config = read_and_validate_config(args.config)
     batch_client = boto3.client("batch")
 
