@@ -189,7 +189,7 @@ def upload_docker_image_to_ecr(image: str, region: str) -> str:
 
 
 def main():
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = argparse.ArgumentParser(description="Upload a Docker image to AWS ECR.")
     parser.add_argument(
         "docker_image",
