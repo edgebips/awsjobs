@@ -169,12 +169,12 @@ def upload_docker_image_to_ecr(image: str, region: str) -> str:
 
     # 2. Tag the local Docker image
     try:
-        local_image = docker_client.images.get(repository)
+        local_image = docker_client.images.get(f"{repository}:{image_tag}")
         ecr_image_uri = f"{registry}/{repository}:{image_tag}"
         local_image.tag(repository=f"{registry}/{repository}", tag=image_tag)
         logging.info(f"Tagged local image '{local_image}' as '{ecr_image_uri}'")
     except docker.errors.ImageNotFound:
-        logging.error(f"Error: Local image '{local_image}' not found.")
+        logging.error(f"Error: Local image in repository '{repository}' not found.")
         return
 
     # 3. Push the Docker image to ECR
