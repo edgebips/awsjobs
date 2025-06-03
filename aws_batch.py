@@ -795,7 +795,7 @@ def main():
     parser_submit.add_argument(
         "image_uri",
         action="store",
-        help="Container image URI",
+        help="Container repository + image URI",
     )
     parser_submit.add_argument(
         "mapping_file",
@@ -845,7 +845,7 @@ def main():
         logging.info("Teardown complete.")
 
     elif args.command == "submit":
-        job_name = args.job_name or args.image_uri.split(":")[0]
+        job_name = args.job_name or args.image_uri.split(":")[1]
         logging.info(f"Submitting job '{job_name}'...")
 
         s3_map_uri, num_jobs = prepare_mapping_file(job_name, args.mapping_file, config)
