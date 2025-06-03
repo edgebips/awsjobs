@@ -510,7 +510,7 @@ def create_job_definition(
                     {"type": "MEMORY", "value": str(memory_mib)},
                 ],
                 "ephemeralStorage": {
-                    "sizeInGiB": 40,
+                    "sizeInGiB": 128,
                 },
                 "fargatePlatformConfiguration": {  # Optional: Specify Fargate platform version
                     "platformVersion": "LATEST"
