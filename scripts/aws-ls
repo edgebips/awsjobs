@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+
+import boto3
+import re
+import argparse
+import sys
+import fnmatch  # For converting glob to regex
+
+
+def glob_to_regex(glob_pattern):
+    """
+    Converts a shell-style glob pattern to a regular expression.
+    Handles '*', '?', and character sets.
+    """
+    # Use fnmatch.translate to convert glob to a basic regex
+    regex_pattern = fnmatch.translate(glob_pattern)
+    return regex_pattern
+
+
+def human_readable_size(size_bytes):
+    """
+    Converts a size in bytes to a human-readable format (e.g., KB, MB, GB).
+    """
+    if size_bytes is None:
+        return "N/A"
+    for unit in ["bytes", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"]:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024.0
+
+
+def calculate_s3_subset_size(bucket_name, glob_pattern):
+    """
+    Calculates the total size and object count of S3 objects matching a glob pattern.
+
+    Args:
+        bucket_name (str): The name of the S3 bucket.
+        glob_pattern (str): The shell-style glob pattern to match object keys.
+
+    Returns:
+        tuple: A tuple containing (total_size_bytes, object_count).
+               Returns (None, None) if an error occurs.
+    """
+    s3 = boto3.client("s3")
+    total_size = 0
+    object_count = 0
+
+    try:
+        # Convert glob pattern to a regular expression
+        regex_pattern = glob_to_regex(glob_pattern)
+        print(
+            f"Searching for objects matching regex: '{regex_pattern}' in bucket: '{bucket_name}'"
+        )
+        compiled_regex = re.compile(regex_pattern)
+
+        paginator = s3.get_paginator("list_objects_v2")
+        # Use an empty Prefix to list all objects if the glob is broad,
+        # otherwise provide a common prefix to limit the initial API calls.
+        # For a truly arbitrary glob, we must iterate all objects.
+        # If the glob starts with a clear prefix, we can optimize here.
+        # E.g., for 'my_folder/*.txt', we can set Prefix='my_folder/'
+        # For this general solution, we'll list all and filter.
+
+        # Determine the initial prefix to optimize API calls if possible
+        # This is a basic optimization; a more robust one might analyze the glob itself.
+        first_slash_index = glob_pattern.find("/")
+        if first_slash_index != -1 and not (
+            "*" in glob_pattern[:first_slash_index]
+            or "?" in glob_pattern[:first_slash_index]
+        ):
+            initial_prefix = (
+                glob_pattern.split("*")[0].split("?")[0].split("[")[0]
+            )  # Get the longest literal prefix
+            print(f"Using initial S3 prefix for optimization: '{initial_prefix}'")
+            response_iterator = paginator.paginate(
+                Bucket=bucket_name, Prefix=initial_prefix
+            )
+        else:
+            response_iterator = paginator.paginate(Bucket=bucket_name)
+
+        for page in response_iterator:
+            if "Contents" in page:
+                for obj in page["Contents"]:
+                    if compiled_regex.fullmatch(
+                        obj["Key"]
+                    ):  # Use fullmatch to match the entire string
+                        total_size += obj["Size"]
+                        object_count += 1
+            else:
+                # No 'Contents' in this page, means no objects found for this prefix/page
+                pass  # Continue to next page or break if no more pages
+
+    except s3.exceptions.NoSuchBucket:
+        print(f"Error: Bucket '{bucket_name}' does not exist.", file=sys.stderr)
+        return None, None
+    except s3.exceptions.ClientError as e:
+        error_code = e.response.get("Error", {}).get("Code")
+        if error_code == "AccessDenied":
+            print(
+                f"Error: Access denied to bucket '{bucket_name}'. "
+                "Please check your AWS credentials and IAM permissions.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"An AWS client error occurred: {e}", file=sys.stderr)
+        return None, None
+    except re.error as e:
+        print(
+            f"Error: Invalid glob pattern provided, cannot convert to regex: {e}",
+            file=sys.stderr,
+        )
+        return None, None
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}", file=sys.stderr)
+        return None, None
+
+    return total_size, object_count
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Calculate the total size and count of S3 objects matching a glob pattern.",
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
+    parser.add_argument(
+        "bucket_name", help="The name of the S3 bucket (e.g., my-data-bucket)"
+    )
+    parser.add_argument(
+        "glob_pattern",
+        help="""The glob pattern to filter S3 object keys (e.g., 'logs/*.log', 'data/2023/*/reports.csv', 'prefix/image_??.jpg').
+Note: The pattern is matched against the full object key, including any prefixes.
+Examples:
+  - 'my_folder/*.txt'         : Matches all .txt files directly in my_folder/
+  - 'data/**/*.json'          : Matches all .json files recursively within data/
+  - 'archive/2024-??-??/*'     : Matches all objects in daily folders under archive/2024-
+  - '*.zip'                   : Matches any .zip file anywhere in the bucket
+  - 'specific_file.csv'       : Matches a single specific file
+""",
+    )
+    parser.add_argument(
+        "--profile",
+        help="The AWS profile to use from your AWS credentials file (e.g., default, my-dev-profile).",
+        default=None,
+    )
+
+    args = parser.parse_args()
+
+    # Set up AWS session if a profile is specified
+    if args.profile:
+        try:
+            boto3.setup_default_session(profile_name=args.profile)
+            print(f"Using AWS profile: {args.profile}")
+        except Exception as e:
+            print(
+                f"Error setting up AWS profile '{args.profile}': {e}", file=sys.stderr
+            )
+            sys.exit(1)
+
+    total_size, object_count = calculate_s3_subset_size(
+        args.bucket_name, args.glob_pattern
+    )
+
+    if total_size is not None and object_count is not None:
+        print("\n--- Results ---")
+        print(f"Bucket: {args.bucket_name}")
+        print(f"Glob Pattern: '{args.glob_pattern}'")
+        print(f"Regex Pattern Used: '{glob_to_regex(args.glob_pattern)}'")
+        print(f"Total objects matching: {object_count}")
+        print(f"Total size of matching objects: {human_readable_size(total_size)}")
+    else:
+        print(
+            "\nOperation failed. Please check the error messages above.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
